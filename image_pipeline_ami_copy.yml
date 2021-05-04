@@ -1,0 +1,17 @@
+---
+- hosts: all
+  become: false
+  gather_facts: yes
+  vars:
+    # Debug Mode Switch, leaving behind artifacts and configs etc. default to False
+    IMAGE_DEBUG: 'true'   
+    AMI_NAME: 'amzn-linux-20210425-test01' # Provide your AMI NAME
+    # AWS Variables
+    AWS_KMS_KEY: 'arn:aws:kms:us-east-1:xxxxxx:key/xxxxxxxx'
+    AWS_SOURCE_REGION: 'ca-central-1'
+    AWS_DEST_REGION: 'us-east-1'
+    AWS_PROFILE: 'sbox' 
+  
+  tasks:
+    - include_role:
+        name: image_copy

@@ -1,0 +1,5 @@
+#VIM Files
+*.swp
+
+#Ansible Files
+*.retry

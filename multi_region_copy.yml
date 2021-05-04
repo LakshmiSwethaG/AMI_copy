@@ -1,0 +1,70 @@
+---
+# AWS - Copy Image and Output the requisite AMI ID
+
+- name: Copy to Encrypted Volumes in Regions
+  block:
+    - name: Given AMI Name
+      debug: 
+        msg: "AMI NAME '{{ AMI_NAME }}'"
+
+    - name: Retrieve AMI ID using AMI NAME
+      command: aws ec2 describe-images --region {{ AWS_SOURCE_REGION }} --filters "Name=name,Values={{ AMI_NAME }}" --profile {{ AWS_PROFILE }}
+      register: retrive_ami_id
+
+    - set_fact:
+        ami_id: "{{ (retrive_ami_id.stdout|from_json).Images[0].ImageId }}"
+
+    - name: AMI ID
+      debug: 
+        msg: "Ami id '{{ ami_id }}'"
+
+    - name: Copy Image to single region
+      command: aws ec2 copy-image --source-image-id {{ ami_id }} --source-region {{ AWS_SOURCE_REGION }} --region {{ AWS_DEST_REGION }} --name {{ AMI_NAME }} --encrypted --kms-key-id {{ AWS_KMS_KEY }} --profile {{ AWS_PROFILE }}
+      register: region_copy
+
+    - name: Copy Image to multiple regions
+      multi_region_copy:
+        command: aws ec2 copy-image --source-image-id {{ ami_id }} --source-region {{ AWS_SOURCE_REGION }} --region {{ item.AWS_DEST_REGION }} --name {{ item.AMI_NAME }} --encrypted --kms-key-id {{ item.AWS_KMS_KEY }} --profile {{ AWS_PROFILE }}
+      with_items:
+      - { AWS_DEST_REGION: '{{ AWS_DEST_REGION }}', AMI_NAME: '{{ AMI_NAME }}', AWS_KMS_KEY: '{{ AWS_KMS_KEY }}'}
+      - { AWS_DEST_REGION: '{{ AWS_DEST_REGION2 }}', AMI_NAME: '{{ AMI_NAME2 }}', AWS_KMS_KEY: '{{ AWS_KMS_KEY2 }}'}
+      - { AWS_DEST_REGION: '{{ AWS_DEST_REGION3 }}', AMI_NAME: '{{ AMI_NAME3 }}', AWS_KMS_KEY: '{{ AWS_KMS_KEY3 }}'}
+      register: multi_region_copy
+    
+    - name: New AMI IDs
+      check_image_copy:
+        command: aws ec2 describe-images --region {{ item.AWS_DEST_REGION }} --image-ids {{ item.ImageId }} --profile {{ AWS_PROFILE }}
+        register: copystate
+        until: (copystate.stdout|from_json).Images[0].State == "available" && (copystate.stdout|from_json).Images[1].State == "available" && (copystate.stdout|from_json).Images[2].State == "available"
+        retries: 400
+        delay: 10
+      debug:
+        msg: "Destination AMI ID- '{{ item.ImageID }}'"
+      with_items:
+      - { AWS_DEST_REGION: '{{ AWS_DEST_REGION }}', ImageID: '{{ (multi_region_copy.stdout|from_json)[0].ImageId }}'}
+      - { AWS_DEST_REGION: '{{ AWS_DEST_REGION2 }}', ImageID: '{{ (multi_region_copy.stdout|from_json)[1].ImageId }}'}
+      - { AWS_DEST_REGION: '{{ AWS_DEST_REGION3 }}', ImageID: '{{ (multi_region_copy.stdout|from_json)[2].ImageId }}'}
+
+    - name: New AMI ID
+      debug:
+        msg: "Destination AMI ID- '{{ (region_copy.stdout|from_json).ImageId }}'"
+
+    - name: Check Image Copy
+      command: aws ec2 describe-images --region {{ AWS_DEST_REGION }} --image-ids {{ (region_copy.stdout|from_json).ImageId }} --profile {{ AWS_PROFILE }}
+      register: copystate
+      until: (copystate.stdout|from_json).Images[0].State == "available"
+      retries: 400
+      delay: 10
+      
+  rescue:
+    - name: Error Occured, debug false
+      debug:
+        msg: 'Error Occured, debug false'
+      when: IMAGE_DEBUG == "false"
+    - name: Error Occured, debug true.
+      debug:
+        msg: Error Occured, debug true.
+      when: IMAGE_DEBUG == "true"
+    - name: Fail Build
+      fail:
+        msg: "Build Failed, Cleanup Completed Please Review Logging"
